@@ -21,9 +21,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.times
@@ -56,30 +60,29 @@ class MainActivity : ComponentActivity() {
 
 class AViewModel : ViewModel() {
     private val _aNumber = MutableStateFlow(1)
-    private val _colorRed = MutableStateFlow(Color.Red)
-    private val _colorGreen = MutableStateFlow(Color.Green)
-    private val _titleList = MutableStateFlow(listOf("PLUS", "RÖD", "GRÖN"))
-    private val _colorList = MutableStateFlow(listOf(Color.Gray, Color.Red, Color.Green))
 
-    val colorList: StateFlow<List<Color>> = _colorList
-    val titleList: StateFlow<List<String>> = _titleList
+    private val _colorInfoList = MutableStateFlow(
+        listOf(
+            ColorData(Color.Gray, "PLUS"),
+            ColorData(Color.Red, "RÖD"),
+            ColorData(Color.Green, "GRÖN")
+        )
+    )
+    val colorInfoList: StateFlow<List<ColorData>> = _colorInfoList
+
     val aNumber: StateFlow<Int> = _aNumber
-    val colorRed: StateFlow<Color> = _colorRed
-    val colorGreen: StateFlow<Color> = _colorGreen
 
     fun addOne() {
         _aNumber.value++
     }
 
-    fun updateButtonInfo(index: Int, newColor: Color, newTitle: String) {
-        val updateColors = _colorList.value.toMutableList()
-        val updateTitles = _titleList.value.toMutableList()
-        updateColors[index] = newColor
-        updateTitles[index] = newTitle
-        _colorList.value = updateColors
-        _titleList.value = updateTitles
+    fun navigateWithColors(index: Int, navController: NavHostController) {
+        val colorData = _colorInfoList.value.getOrNull(index)
+        colorData?.let {
+            val colorInt = it.color.toArgb()
+            navController.navigate("${Routes.COLOR}/${colorInt}/${it.title}")
+        }
     }
-
 }
 
 object Routes {
@@ -87,32 +90,37 @@ object Routes {
     const val COLOR = "color"
 }
 
+data class ColorData(
+    val color: Color,
+    val title: String
+)
+
 @Composable
 fun StartScreen() {
     val navController = rememberNavController()
     val aViewModel: AViewModel = viewModel()
-    val mainColor by aViewModel.colorRed.collectAsState()
-    var color = mainColor
+
+
 
     val number by aViewModel.aNumber.collectAsState()
     val add = {
         aViewModel.addOne()
     }
-    val navigateRed = {
-        color = aViewModel.colorRed.value
-        navController.navigate(Routes.COLOR)
-    }
-    val navigateBlue = {
-        color = aViewModel.colorGreen.value
-        navController.navigate(Routes.COLOR)
-    }
+
     
     NavHost(navController = navController, startDestination = Routes.MAIN, modifier = Modifier.fillMaxSize()) {
         composable(Routes.MAIN) {
-            MainScreen(navigateRed = navigateRed, navigateGreen = navigateBlue, number = number, add = add)
+            MainScreen(navigate = { index -> aViewModel.navigateWithColors(index, navController) }, number = number, add = add)
         }
-        composable(Routes.COLOR) {
-            ColorScreen(color = color, navController = navController, number = number)
+        composable("${Routes.COLOR}/{color}/{title}") { backStackEntry ->
+            val colorArg = backStackEntry.arguments?.getString("color") ?: Color.Gray.toArgb().toString()
+            val color = try {
+                Color(colorArg.toInt())
+            } catch (e: NumberFormatException) {
+                Color.Gray
+            }
+            val title = backStackEntry.arguments?.getString("title") ?: "TITLE"
+            ColorScreen(navController = navController, color = color, title = title, number = number)
         }
     }
 }
@@ -121,13 +129,11 @@ fun StartScreen() {
 @Composable
 fun MainScreen(
     aViewModel: AViewModel = viewModel(),
-    navigateRed: () -> Unit = {},
-    navigateGreen: () -> Unit = {},
     add: () -> Unit = {},
-    number: Int
+    number: Int,
+    navigate: (Int) -> Unit = {}
 ) {
-    val titleList by aViewModel.titleList.collectAsState()
-    val colorList by aViewModel.colorList.collectAsState()
+    val colorInfoList by aViewModel.colorInfoList.collectAsState()
 
     Column(Modifier.fillMaxSize().background(Color.Cyan),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -135,13 +141,11 @@ fun MainScreen(
         Text("$number", style = MaterialTheme.typography.displayMedium)
         LazyColumn() {
 
-            items(titleList.size) { index ->
-                CustomButton(color = colorList[index], title = titleList[index], onClick = {
-                    if (colorList[index] == Color.Red)
-                        navigateRed()
-                    else if (colorList[index] == Color.Green)
-                        navigateGreen()
+            items(colorInfoList.size) { index ->
+                CustomButton(color = colorInfoList[index].color, title = colorInfoList[index].title, onClick = {
+                    if (index > 0) navigate(index)
                     else add()
+
 
                 }
                 )
@@ -159,17 +163,16 @@ fun MainScreen(
 @Composable
 fun ColorScreen(
     navController: NavHostController,
+    goBack: () -> Unit = { navController.popBackStack() },
+    number: Int,
     color: Color,
-    aViewModel: AViewModel = viewModel(),
-    goBack: () -> Unit = {navController.popBackStack()},
-    number: Int
+    title: String
 ) {
-    val colorRed by aViewModel.colorRed.collectAsState()
-    val title = if (color == colorRed) "RÖD" else "GRÖN"
-
-    Column(Modifier.fillMaxSize().background(Color.Cyan),
+    Column(
+        Modifier.fillMaxSize().background(Color.Cyan),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center) {
+        verticalArrangement = Arrangement.Center
+    ) {
         Text("$number", style = MaterialTheme.typography.displayLarge)
         CustomButton(color = color, title = title, onClick = { goBack() })
     }
